@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Valorant Mobile",
+    "slug": "valorant-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon-1.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "assetBundlePatterns": [
+      "assets/**/*"
+    ],
+    "web": {
+      "favicon": "./assets/images/icon-1.png",
+      "bundler": "metro"
+    }
+  }
+}

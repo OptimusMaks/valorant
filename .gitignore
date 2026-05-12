@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+dist/
+web-build/
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.env
+.env.*
+
+# Master copy after first `npm run compress:assets` (original ~18MB video); keep out of git if you only ship compressed `video.mp4`.
+assets/video.source.mp4
