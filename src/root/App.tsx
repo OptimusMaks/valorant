@@ -23,11 +23,26 @@ function useWebViewportKeyboardBehavior() {
   }, []);
 }
 
+/** iOS Safari: keep `html` / `body` / `#root` painted with header chrome after RN injects styles. */
+function useWebDocumentChromeBackground() {
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const bg = colors.headerBg;
+    document.documentElement.style.backgroundColor = bg;
+    document.body.style.backgroundColor = bg;
+    const root = document.getElementById('root');
+    if (root) {
+      root.style.backgroundColor = bg;
+    }
+  }, []);
+}
+
 export default function App() {
   const [fontsLoaded] = useFonts(customFonts);
   const { height } = useWindowDimensions();
 
   useWebViewportKeyboardBehavior();
+  useWebDocumentChromeBackground();
 
   /**
    * Native: wait for custom fonts (otherwise titles fall back badly).
@@ -47,7 +62,7 @@ export default function App() {
     <SafeAreaProvider>
       <View
         style={[
-          { flex: 1, width: '100%' },
+          { backgroundColor: colors.headerBg, flex: 1, width: '100%' },
           Platform.OS === 'web'
             ? ({ minHeight: '100dvh' } as unknown as ViewStyle)
             : { minHeight: height },

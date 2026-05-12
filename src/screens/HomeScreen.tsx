@@ -3,6 +3,7 @@ import {
   Animated,
   Image,
   ImageBackground,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -19,6 +20,7 @@ import { AccountEmailForm } from '../components/AccountEmailForm';
 import { LandingPhoneVideo } from '../components/LandingPhoneVideo';
 import { DESIGN_PX } from '../constants/designSizes';
 import { useLayoutScale } from '../hooks/useLayoutScale';
+import { createChargedPayCheckout } from '../services/chargedPay';
 import { colors } from '../styles/colors';
 import { fontFamilies } from '../styles/fonts';
 
@@ -49,7 +51,14 @@ const SUCCESS_BODY_LINES = [
   'Tap the button below to launch the game and start playing.',
 ] as const;
 
-type HomeStep = 'landing' | 'account' | 'success';
+const FAILURE_LEAD = 'Payment was not completed.' as const;
+
+const FAILURE_BODY_LINES = [
+  'Your access has not been activated yet.',
+  'Return to checkout and complete the payment to unlock early access.',
+] as const;
+
+type HomeStep = 'landing' | 'account' | 'success' | 'failure';
 
 export function HomeScreen() {
   const { s, layoutWidth } = useLayoutScale();
@@ -76,6 +85,8 @@ export function HomeScreen() {
 
   const [step, setStep] = useState<HomeStep>('landing');
   const [accountEmail, setAccountEmail] = useState('');
+  const [checkoutError, setCheckoutError] = useState('');
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   /** Web (esp. iOS Safari): blur + scroll reset when leaving the email step so stuck zoom/scroll does not carry over. */
   useEffect(() => {
@@ -86,6 +97,24 @@ export function HomeScreen() {
     }
     window.scrollTo(0, 0);
   }, [step]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+
+    const syncPaymentRedirect = () => {
+      const nextStep = getPaymentStepFromLocation();
+      if (nextStep) setStep(nextStep);
+    };
+
+    syncPaymentRedirect();
+    window.addEventListener('hashchange', syncPaymentRedirect);
+    window.addEventListener('popstate', syncPaymentRedirect);
+
+    return () => {
+      window.removeEventListener('hashchange', syncPaymentRedirect);
+      window.removeEventListener('popstate', syncPaymentRedirect);
+    };
+  }, []);
 
   const ctaPressScale = useRef(new Animated.Value(1)).current;
 
@@ -105,6 +134,24 @@ export function HomeScreen() {
       toValue: 1,
       useNativeDriver: true,
     }).start();
+  };
+
+  const startCheckout = async () => {
+    const email = accountEmail.trim();
+
+    if (checkoutLoading) return;
+
+    setCheckoutError('');
+    setCheckoutLoading(true);
+
+    try {
+      const product = await createChargedPayCheckout(email);
+      await Linking.openURL(product.url);
+    } catch {
+      setCheckoutError('Payment page is unavailable. Please try again.');
+    } finally {
+      setCheckoutLoading(false);
+    }
   };
 
   const bgMinHeightStyle: ViewStyle =
@@ -274,10 +321,28 @@ export function HomeScreen() {
 
                   <View style={styles.ctaPushSpacer} />
 
+                  {checkoutError ? (
+                    <Text
+                      style={[
+                        styles.paymentMessage,
+                        {
+                          color: colors.accent,
+                          fontSize: s(14),
+                          lineHeight: s(18),
+                          marginBottom: s(12),
+                          maxWidth: Math.min(s(315), contentMax),
+                        },
+                      ]}
+                    >
+                      {checkoutError}
+                    </Text>
+                  ) : null}
+
                   <Animated.View style={{ alignSelf: 'center', transform: [{ scale: ctaPressScale }] }}>
                     <Pressable
                       accessibilityRole="button"
-                      onPress={() => setStep('account')}
+                      disabled={checkoutLoading}
+                      onPress={startCheckout}
                       onPressIn={ctaPressIn}
                       onPressOut={ctaPressOut}
                       style={[
@@ -285,12 +350,15 @@ export function HomeScreen() {
                         {
                           height: s(62),
                           marginTop: s(32),
+                          opacity: checkoutLoading ? 0.45 : 1,
                           width: ctaOuterW,
                         },
                       ]}
                     >
                       <View style={[styles.ctaInner, { height: s(52), width: ctaInnerW }]}>
-                        <Text style={[styles.ctaLabel, { fontSize: s(24), lineHeight: s(26) }]}>PLAY NOW</Text>
+                        <Text style={[styles.ctaLabel, { fontSize: s(24), lineHeight: s(26) }]}>
+                          {checkoutLoading ? 'OPENING...' : 'PLAY NOW'}
+                        </Text>
                       </View>
                     </Pressable>
                   </Animated.View>
@@ -364,7 +432,7 @@ export function HomeScreen() {
                   </Animated.View>
               </ScrollView>
             </View>
-          ) : (
+          ) : step === 'success' ? (
             <View style={styles.mainStageInner}>
               <ScrollView
                 keyboardShouldPersistTaps="handled"
@@ -450,6 +518,92 @@ export function HomeScreen() {
                   </Animated.View>
               </ScrollView>
             </View>
+          ) : (
+            <View style={styles.mainStageInner}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                style={styles.scroll}
+                contentContainerStyle={stageScrollContentStyle}
+              >
+                  <Text
+                    style={[
+                      styles.accountHeroTitle,
+                      {
+                        fontSize: s(25),
+                        lineHeight: s(28),
+                        marginTop: s(24),
+                        maxWidth: Math.min(s(361), contentMax),
+                      },
+                    ]}
+                  >
+                    VALORANT MOBILE
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.successCongrats,
+                      {
+                        fontSize: s(22),
+                        lineHeight: s(26),
+                        marginTop: s(DESIGN_PX.successTitleToCongratsGap),
+                        maxWidth: Math.min(s(393), contentMax),
+                      },
+                    ]}
+                  >
+                    PAYMENT NOT COMPLETED
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.successLead,
+                      {
+                        fontSize: s(18),
+                        lineHeight: s(22),
+                        marginTop: s(DESIGN_PX.successCongratsToLeadGap),
+                        maxWidth: Math.min(s(364), contentMax),
+                      },
+                    ]}
+                  >
+                    {FAILURE_LEAD}
+                  </Text>
+
+                  <View style={{ marginTop: s(DESIGN_PX.successLeadToPhoneGap), zIndex: 1 }}>
+                    <LandingPhoneVideo maxWidth={contentMax} s={s} />
+                  </View>
+
+                  <View style={[styles.successCopyStack, { gap: s(12), marginTop: s(DESIGN_PX.successPhoneToBodyGap), maxWidth: Math.min(s(364), contentMax) }]}>
+                    {FAILURE_BODY_LINES.map((line) => (
+                      <Text key={line} style={[styles.successBodyLine, { fontSize: s(14), lineHeight: s(17) }]}>
+                        {line}
+                      </Text>
+                    ))}
+                  </View>
+
+                  <View style={styles.ctaPushSpacer} />
+
+                  <Animated.View style={{ alignSelf: 'center', transform: [{ scale: ctaPressScale }] }}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => setStep('landing')}
+                      onPressIn={ctaPressIn}
+                      onPressOut={ctaPressOut}
+                      style={[
+                        styles.ctaOuter,
+                        {
+                          height: s(62),
+                          marginTop: s(32),
+                          width: ctaOuterW,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.ctaInner, { height: s(52), width: ctaInnerW }]}>
+                        <Text style={[styles.ctaLabel, { fontSize: s(24), lineHeight: s(26) }]}>TRY AGAIN</Text>
+                      </View>
+                    </Pressable>
+                  </Animated.View>
+              </ScrollView>
+            </View>
           )}
         </View>
       </View>
@@ -457,9 +611,26 @@ export function HomeScreen() {
   );
 }
 
+function getPaymentStepFromLocation(): Extract<HomeStep, 'account' | 'failure'> | null {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
+
+  const marker = `${window.location.pathname}${window.location.search}${window.location.hash}`.toLowerCase();
+
+  if (marker.includes('payment=success') || marker.includes('/payment/success')) {
+    return 'account';
+  }
+
+  if (marker.includes('payment=failure') || marker.includes('/payment/failure')) {
+    return 'failure';
+  }
+
+  return null;
+}
+
 const styles = StyleSheet.create({
   bgRoot: {
-    backgroundColor: colors.background,
+    /** Same as header — avoids light gaps on iOS before bg.webp paints / at overscroll. */
+    backgroundColor: colors.headerBg,
     flex: 1,
     width: '100%',
   },
@@ -576,6 +747,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.menuButtonBg,
     justifyContent: 'center',
+  },
+  paymentMessage: {
+    alignSelf: 'center',
+    color: colors.text,
+    fontFamily: fontFamilies.dinBold,
+    textAlign: 'center',
   },
   scroll: {
     flex: 1,

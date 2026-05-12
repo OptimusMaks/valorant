@@ -9,27 +9,38 @@
     />
     <meta name="theme-color" content="#111111" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#111111" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="supported-color-schemes" content="dark" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <title>%WEB_TITLE%</title>
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
-      /* Match app header (`colors.headerBg`) so iOS Safari / overscroll never flash white. */
-      /* Ref valrnt.mobgam.info `html, body { min-width: 390px }` */
-      html,
-      body {
-        height: 100%;
+      /* `colors.headerBg` — iOS Safari overscroll / safe-area / before-RN-paint must never flash white */
+      html {
+        min-height: 100%;
+        min-height: -webkit-fill-available;
         min-width: 390px;
-        background-color: #111111;
+        background-color: #111111 !important;
+        color-scheme: dark;
       }
       body {
+        min-height: 100%;
+        min-height: -webkit-fill-available;
+        min-width: 390px;
+        margin: 0;
+        background-color: #111111 !important;
+        color-scheme: dark;
         overflow: hidden;
       }
       #root {
         display: flex;
-        height: 100%;
+        min-height: 100%;
+        min-height: -webkit-fill-available;
         min-height: 100dvh;
         flex: 1;
-        background-color: #111111;
+        width: 100%;
+        background-color: #111111 !important;
+        color-scheme: dark;
       }
     </style>
   </head>
