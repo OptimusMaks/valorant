@@ -10,8 +10,8 @@ const CHARGED_PAY_API_BASE_URL = 'https://chargedpay.com/api/v1';
 
 export const chargedPayConfig = {
   apiBaseUrl: readEnv('EXPO_PUBLIC_CHARGEDPAY_API_BASE_URL') ?? CHARGED_PAY_API_BASE_URL,
-  paymentBoxIds: ['a9b6def1-d7cc-4954-bb98-2e8ddbd38604'],
-  projectId: '1529f44f-5777-46ed-bd26-cac738cdaae2',
+  paymentBoxIds: ['62c92239-4b79-47a3-9356-9b4626f9e7af'],
+  projectId: '4b147c71-791a-4f99-a28a-938488cb3cc1',
 } as const;
 
 export function getPaymentRedirectUrls() {
