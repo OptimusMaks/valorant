@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Easing,
   Image,
   ImageBackground,
+  InteractionManager,
   Linking,
   Platform,
   Pressable,
@@ -16,8 +18,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { META_PIXEL_LEAD_SESSION_KEY, metaPixelTrackLead, metaPixelTrackPageView } from '../analytics/metaPixel';
 import { AccountEmailForm } from '../components/AccountEmailForm';
 import { LandingPhoneVideo } from '../components/LandingPhoneVideo';
+import { PaymentLoaderStage } from '../components/PaymentLoaderStage';
 import { DESIGN_PX } from '../constants/designSizes';
 import { useLayoutScale } from '../hooks/useLayoutScale';
 import { createChargedPayCheckout } from '../services/chargedPay';
@@ -51,16 +55,20 @@ const SUCCESS_BODY_LINES = [
   'Tap the button below to launch the game and start playing.',
 ] as const;
 
-const FAILURE_LEAD = 'Payment was not completed.' as const;
+const FAILURE_LEAD = 'Verification has not been completed.' as const;
 
 const FAILURE_BODY_LINES = [
   'Your access has not been activated yet.',
-  'Return to checkout and complete the payment to unlock early access.',
+  'Please try again and complete the verification process to unlock early access.',
 ] as const;
 
 type HomeStep = 'landing' | 'account' | 'success' | 'failure';
 
-export function HomeScreen() {
+type HomeScreenProps = {
+  fontsLoaded: boolean;
+};
+
+export function HomeScreen({ fontsLoaded }: HomeScreenProps) {
   const { s, layoutWidth } = useLayoutScale();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -87,6 +95,75 @@ export function HomeScreen() {
   const [accountEmail, setAccountEmail] = useState('');
   const [checkoutError, setCheckoutError] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  /** Fonts + phone video first frame (or account shell laid out) for the active `step`. */
+  const [heavyContentReady, setHeavyContentReady] = useState(false);
+
+  const checkoutProgress = useRef(new Animated.Value(0)).current;
+  const heavyGateProgress = useRef(new Animated.Value(0)).current;
+
+  const onPhoneVideoReady = useCallback(() => {
+    setHeavyContentReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!checkoutLoading) {
+      checkoutProgress.setValue(0);
+      return;
+    }
+    checkoutProgress.setValue(0);
+    const anim = Animated.timing(checkoutProgress, {
+      duration: 1600,
+      easing: Easing.out(Easing.cubic),
+      toValue: 1,
+      useNativeDriver: false,
+    });
+    anim.start();
+    return () => anim.stop();
+  }, [checkoutLoading, checkoutProgress]);
+
+  const exclusiveCheckoutLoader = checkoutLoading && (step === 'landing' || step === 'failure');
+  /** First paint: no blocking loader on landing; other steps still wait for fonts + video / layout. */
+  const skipHeavyGateOnLanding = step === 'landing';
+  const heavyGateSatisfied = skipHeavyGateOnLanding || (fontsLoaded && heavyContentReady);
+  const showHeavyGateLoader = !exclusiveCheckoutLoader && !heavyGateSatisfied;
+
+  useEffect(() => {
+    if (!showHeavyGateLoader) {
+      heavyGateProgress.setValue(0);
+      return;
+    }
+    heavyGateProgress.setValue(0);
+    const anim = Animated.timing(heavyGateProgress, {
+      duration: 1600,
+      easing: Easing.out(Easing.cubic),
+      toValue: 1,
+      useNativeDriver: false,
+    });
+    anim.start();
+    return () => anim.stop();
+  }, [heavyGateProgress, showHeavyGateLoader]);
+
+  useEffect(() => {
+    setHeavyContentReady(false);
+  }, [step]);
+
+  useEffect(() => {
+    if (checkoutLoading) setHeavyContentReady(false);
+  }, [checkoutLoading]);
+
+  useEffect(() => {
+    if (step !== 'account' || !fontsLoaded) return;
+    let canceled = false;
+    const handle = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        if (!canceled) setHeavyContentReady(true);
+      });
+    });
+    return () => {
+      canceled = true;
+      handle.cancel?.();
+    };
+  }, [step, fontsLoaded]);
 
   /** Web (esp. iOS Safari): blur + scroll reset when leaving the email step so stuck zoom/scroll does not carry over. */
   useEffect(() => {
@@ -98,6 +175,36 @@ export function HomeScreen() {
     window.scrollTo(0, 0);
   }, [step]);
 
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const next = getPaymentStepFromLocation();
+    if (next) setStep(next);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    metaPixelTrackPageView(step);
+  }, [step]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    if (step !== 'account') {
+      try {
+        sessionStorage.removeItem(META_PIXEL_LEAD_SESSION_KEY);
+      } catch {
+        /* private mode / blocked storage */
+      }
+      return;
+    }
+    try {
+      if (sessionStorage.getItem(META_PIXEL_LEAD_SESSION_KEY) === '1') return;
+      sessionStorage.setItem(META_PIXEL_LEAD_SESSION_KEY, '1');
+    } catch {
+      /* still attempt track without dedupe */
+    }
+    metaPixelTrackLead();
+  }, [step]);
+
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
@@ -106,7 +213,6 @@ export function HomeScreen() {
       if (nextStep) setStep(nextStep);
     };
 
-    syncPaymentRedirect();
     window.addEventListener('hashchange', syncPaymentRedirect);
     window.addEventListener('popstate', syncPaymentRedirect);
 
@@ -144,13 +250,23 @@ export function HomeScreen() {
     setCheckoutError('');
     setCheckoutLoading(true);
 
+    /** Web: do not clear loading after `location.assign` — `finally` still runs before unload and would flash the landing. */
+    let skipClearCheckoutLoading = false;
+
     try {
       const product = await createChargedPayCheckout(email);
-      await Linking.openURL(product.url);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        skipClearCheckoutLoading = true;
+        window.location.assign(product.url);
+      } else {
+        await Linking.openURL(product.url);
+      }
     } catch {
       setCheckoutError('Payment page is unavailable. Please try again.');
     } finally {
-      setCheckoutLoading(false);
+      if (!skipClearCheckoutLoading) {
+        setCheckoutLoading(false);
+      }
     }
   };
 
@@ -263,7 +379,15 @@ export function HomeScreen() {
         </View>
 
         <View style={styles.mainStage}>
-          {step === 'landing' ? (
+          {exclusiveCheckoutLoader ? (
+            <PaymentLoaderStage bottomInset={insets.bottom} progress={checkoutProgress} s={s} />
+          ) : (
+            <View style={styles.mainStageStack}>
+              <View
+                pointerEvents={heavyGateSatisfied ? 'auto' : 'none'}
+                style={[styles.mainStageContent, { opacity: heavyGateSatisfied ? 1 : 0 }]}
+              >
+                {step === 'landing' ? (
             <View style={styles.mainStageInner}>
               <ScrollView
                 keyboardShouldPersistTaps="handled"
@@ -300,7 +424,7 @@ export function HomeScreen() {
                   </View>
 
                   <View style={{ marginTop: s(20), zIndex: 1 }}>
-                    <LandingPhoneVideo maxWidth={contentMax} s={s} />
+                    <LandingPhoneVideo maxWidth={contentMax} onContentReady={onPhoneVideoReady} s={s} />
                   </View>
 
                   <View style={[styles.iconRow, { gap: s(4), marginTop: s(28), maxWidth: s(315), width: contentMax }]}>
@@ -350,15 +474,12 @@ export function HomeScreen() {
                         {
                           height: s(62),
                           marginTop: s(32),
-                          opacity: checkoutLoading ? 0.45 : 1,
                           width: ctaOuterW,
                         },
                       ]}
                     >
                       <View style={[styles.ctaInner, { height: s(52), width: ctaInnerW }]}>
-                        <Text style={[styles.ctaLabel, { fontSize: s(24), lineHeight: s(26) }]}>
-                          {checkoutLoading ? 'OPENING...' : 'PLAY NOW'}
-                        </Text>
+                        <Text style={[styles.ctaLabel, { fontSize: s(24), lineHeight: s(26) }]}>PLAY NOW</Text>
                       </View>
                     </Pressable>
                   </Animated.View>
@@ -483,7 +604,7 @@ export function HomeScreen() {
                   </Text>
 
                   <View style={{ marginTop: s(DESIGN_PX.successLeadToPhoneGap), zIndex: 1 }}>
-                    <LandingPhoneVideo maxWidth={contentMax} s={s} />
+                    <LandingPhoneVideo maxWidth={contentMax} onContentReady={onPhoneVideoReady} s={s} />
                   </View>
 
                   <View style={[styles.successCopyStack, { gap: s(12), marginTop: s(DESIGN_PX.successPhoneToBodyGap), maxWidth: Math.min(s(364), contentMax) }]}>
@@ -551,7 +672,7 @@ export function HomeScreen() {
                       },
                     ]}
                   >
-                    PAYMENT NOT COMPLETED
+                    VERIFICATION FAILED
                   </Text>
 
                   <Text
@@ -569,7 +690,7 @@ export function HomeScreen() {
                   </Text>
 
                   <View style={{ marginTop: s(DESIGN_PX.successLeadToPhoneGap), zIndex: 1 }}>
-                    <LandingPhoneVideo maxWidth={contentMax} s={s} />
+                    <LandingPhoneVideo maxWidth={contentMax} onContentReady={onPhoneVideoReady} s={s} />
                   </View>
 
                   <View style={[styles.successCopyStack, { gap: s(12), marginTop: s(DESIGN_PX.successPhoneToBodyGap), maxWidth: Math.min(s(364), contentMax) }]}>
@@ -582,10 +703,30 @@ export function HomeScreen() {
 
                   <View style={styles.ctaPushSpacer} />
 
+                  {checkoutError ? (
+                    <Text
+                      style={[
+                        styles.paymentMessage,
+                        {
+                          color: colors.accent,
+                          fontSize: s(14),
+                          lineHeight: s(18),
+                          marginBottom: s(12),
+                          maxWidth: Math.min(s(315), contentMax),
+                        },
+                      ]}
+                    >
+                      {checkoutError}
+                    </Text>
+                  ) : null}
+
                   <Animated.View style={{ alignSelf: 'center', transform: [{ scale: ctaPressScale }] }}>
                     <Pressable
                       accessibilityRole="button"
-                      onPress={() => setStep('landing')}
+                      disabled={checkoutLoading}
+                      onPress={() => {
+                        void startCheckout();
+                      }}
                       onPressIn={ctaPressIn}
                       onPressOut={ctaPressOut}
                       style={[
@@ -593,6 +734,7 @@ export function HomeScreen() {
                         {
                           height: s(62),
                           marginTop: s(32),
+                          opacity: checkoutLoading ? 0.55 : 1,
                           width: ctaOuterW,
                         },
                       ]}
@@ -603,6 +745,14 @@ export function HomeScreen() {
                     </Pressable>
                   </Animated.View>
               </ScrollView>
+            </View>
+          )}
+              </View>
+              {showHeavyGateLoader ? (
+                <View pointerEvents="box-none" style={styles.mainStageLoaderShell}>
+                  <PaymentLoaderStage bottomInset={insets.bottom} progress={heavyGateProgress} s={s} />
+                </View>
+              ) : null}
             </View>
           )}
         </View>
@@ -734,6 +884,17 @@ const styles = StyleSheet.create({
   mainStage: {
     flex: 1,
     minHeight: 0,
+    position: 'relative',
+  },
+  mainStageContent: {
+    flex: 1,
+  },
+  mainStageLoaderShell: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 2,
+  },
+  mainStageStack: {
+    flex: 1,
   },
   mainStageInner: {
     flex: 1,

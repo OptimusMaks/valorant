@@ -2,7 +2,8 @@
  * One-shot asset pipeline: large PNG → WebP, small PNG → optimized PNG, video → H.264 + scale + CRF.
  * Run: `npm run compress:assets`
  *
- * Video: keeps `assets/video.source.mp4` as original; re-encode always reads from that file when present.
+ * Video: `video.source.mp4` is the master copy when present. Output is always `video.mp4` (required by Metro).
+ * If only `video.source.mp4` exists, it is encoded into `video.mp4`. If only `video.mp4` exists, it is copied to `video.source.mp4` once, then encoded from the backup.
  */
 'use strict';
 
@@ -55,18 +56,19 @@ function compressVideo() {
   const backup = path.join(assetsDir, 'video.source.mp4');
   const outTmp = path.join(assetsDir, 'video.tmp.mp4');
 
-  if (!fs.existsSync(input)) {
-    console.warn('skip: no video.mp4');
-    return;
-  }
   if (!ffmpegPath) {
     console.warn('skip video: ffmpeg-static unavailable');
     return;
   }
 
-  if (!fs.existsSync(backup)) {
+  if (fs.existsSync(backup)) {
+    // Encode from master copy (video.mp4 may be missing — e.g. gitignored — Metro still needs video.mp4).
+  } else if (fs.existsSync(input)) {
     fs.copyFileSync(input, backup);
     console.log('Backup: video.source.mp4 (original upload)');
+  } else {
+    console.warn('skip video: no video.mp4 or video.source.mp4');
+    return;
   }
 
   const src = backup;

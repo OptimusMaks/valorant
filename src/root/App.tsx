@@ -68,7 +68,7 @@ export default function App() {
             : { minHeight: height },
         ]}
       >
-        <HomeScreen />
+        <HomeScreen fontsLoaded={fontsLoaded} />
       </View>
       <StatusBar barStyle="light-content" />
     </SafeAreaProvider>

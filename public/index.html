@@ -13,6 +13,35 @@
     <meta name="supported-color-schemes" content="dark" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <title>%WEB_TITLE%</title>
+    <!-- Meta Pixel -->
+    <script>
+      !(function (f, b, e, v, n, t, s) {
+        if (f.fbq) return;
+        n = f.fbq = function () {
+          n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
+        };
+        if (!f._fbq) f._fbq = n;
+        n.push = n;
+        n.loaded = !0;
+        n.version = '2.0';
+        n.queue = [];
+        t = b.createElement(e);
+        t.async = !0;
+        t.src = v;
+        s = b.getElementsByTagName(e)[0];
+        s.parentNode.insertBefore(t, s);
+      })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', '2176268816474026');
+    </script>
+    <noscript>
+      <img
+        height="1"
+        width="1"
+        style="display: none"
+        src="https://www.facebook.com/tr?id=2176268816474026&amp;ev=PageView&amp;noscript=1"
+        alt=""
+      />
+    </noscript>
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
       /* `colors.headerBg` — iOS Safari overscroll / safe-area / before-RN-paint must never flash white */

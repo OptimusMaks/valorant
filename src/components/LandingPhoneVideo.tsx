@@ -1,5 +1,5 @@
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Platform, StyleSheet, View, type ViewStyle } from 'react-native';
 
 import {
@@ -20,10 +20,12 @@ const FRONT_CAMERA_ASSET = require('../../assets/images/Front-Camera.png');
 
 type Props = {
   maxWidth: number;
+  onContentReady?: () => void;
   s: (n: number) => number;
 };
 
 type PlaybackProps = {
+  onFirstFrame: () => void;
   playsInline: boolean;
   radius: number;
   vidH: number;
@@ -33,21 +35,36 @@ type PlaybackProps = {
 };
 
 /** Isolated so `useVideoPlayer` mounts after the first paint (lighter initial open). */
-function PhoneVideoPlayback({ playsInline, radius, vidH, vidLeft, vidTop, vidW }: PlaybackProps) {
+function PhoneVideoPlayback({ onFirstFrame, playsInline, radius, vidH, vidLeft, vidTop, vidW }: PlaybackProps) {
   const player = useVideoPlayer(VIDEO_SOURCE, (p) => {
     p.loop = true;
     p.muted = true;
   });
 
+  const firedRef = useRef(false);
+  const fireOnce = () => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    onFirstFrame();
+  };
+
   useEffect(() => {
     player.play();
   }, [player]);
+
+  useEffect(() => {
+    const t = setTimeout(fireOnce, 5000);
+    return () => clearTimeout(t);
+  }, []);
 
   return (
     <VideoView
       contentFit="cover"
       nativeControls={false}
-      onFirstFrameRender={() => player.play()}
+      onFirstFrameRender={() => {
+        player.play();
+        fireOnce();
+      }}
       player={player}
       playsInline={playsInline}
       style={[
@@ -71,7 +88,7 @@ function PhoneVideoPlayback({ playsInline, radius, vidH, vidLeft, vidTop, vidW }
  *
  * Video playback mounts one frame later so the shell (frame + notch) paints before decoding MP4.
  */
-export function LandingPhoneVideo({ maxWidth, s }: Props) {
+export function LandingPhoneVideo({ maxWidth, onContentReady, s }: Props) {
   const [showPlayback, setShowPlayback] = useState(false);
 
   useEffect(() => {
@@ -151,6 +168,7 @@ export function LandingPhoneVideo({ maxWidth, s }: Props) {
         )}
         {showPlayback ? (
           <PhoneVideoPlayback
+            onFirstFrame={() => onContentReady?.()}
             playsInline={Platform.OS === 'web'}
             radius={radius}
             vidH={vidH}
